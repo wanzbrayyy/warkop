@@ -37,26 +37,22 @@ exports.processImage = async (req, res) => {
 
         console.log(chalk.yellow('1. Memulai Proses OCR & Upload...'));
 
-        const ocrPromise = Tesseract.recognize(
-            req.file.buffer,
-            'eng', 
-            { logger: m => {} } 
-        );
+        const worker = await Tesseract.createWorker('eng', 1, {
+            langPath: path.join(__dirname, '..', 'node_modules', 'tesseract.js', 'tessdata'),
+            cacheMethod: 'none',
+        });
+        
+        const ocrPromise = worker.recognize(req.file.buffer);
 
-        const fileName = `scan_${Date.now()}_wm_${path.extname(req.file.originalname)}`;
-        const uploadParams = {
-            Bucket: 'wanzofc',
-            Key: fileName,
-            Body: req.file.buffer,
-            ContentType: req.file.mimetype
-        };
-
+        const fileName = `scan_${Date.now()}_${path.extname(req.file.originalname)}`;
+        const uploadParams = { Bucket: 'wanzofc', Key: fileName, Body: req.file.buffer, ContentType: req.file.mimetype };
         const uploadPromise = r2.send(new PutObjectCommand(uploadParams));
 
         const [{ data: { text } }, uploadResult] = await Promise.all([ocrPromise, uploadPromise]);
+        
+        await worker.terminate();
 
-        console.log(chalk.green('✓ OCR Selesai'));
-        console.log(chalk.green('✓ Upload R2 Selesai:', fileName));
+        console.log(chalk.green('✓ OCR & Upload Selesai:', fileName));
 
         const lines = text.split('\n').filter(line => line.trim() !== '');
         const parsedItems = [];
@@ -70,37 +66,20 @@ exports.processImage = async (req, res) => {
                 let rawProduct = match[2].trim();
                 const price = match[3] ? parseInt(match[3]) : 0;
                 const statusSymbol = match[4] ? match[4].toLowerCase() : '';
-
                 const isPaid = ['v', 'x', '✓', 'ok'].includes(statusSymbol);
                 const product = normalizeProduct(rawProduct);
 
                 if (product.length > 2) { 
-                    parsedItems.push({
-                        qty,
-                        product,
-                        price,
-                        status: isPaid ? 'Lunas' : 'Belum'
-                    });
+                    parsedItems.push({ qty, product, price, status: isPaid ? 'Lunas' : 'Belum' });
                     total += price;
                 }
             }
         });
 
-        const newTrans = new Transaction({
-            items: parsedItems,
-            totalAmount: total,
-            originalImage: fileName 
-        });
-
+        const newTrans = new Transaction({ items: parsedItems, totalAmount: total, originalImage: fileName });
         await newTrans.save();
 
-        res.json({
-            success: true,
-            data: parsedItems,
-            total: total,
-            imageId: fileName,
-            raw_text: text
-        });
+        res.json({ success: true, data: parsedItems, total: total, imageId: fileName, raw_text: text });
 
     } catch (error) {
         console.error(chalk.red('System Error:', error));
