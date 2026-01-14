@@ -39,7 +39,6 @@ exports.processImage = async (req, res) => {
         console.log(chalk.yellow('1. Memulai Proses OCR & Upload (Tesseract v5)...'));
 
         worker = await Tesseract.createWorker('eng');
-        
         const ocrPromise = worker.recognize(req.file.buffer);
 
         const fileName = `scan_${Date.now()}_${path.extname(req.file.originalname)}`;
@@ -55,25 +54,34 @@ exports.processImage = async (req, res) => {
         let total = 0;
 
         lines.forEach(line => {
-            const match = line.match(/^(\d+)?\s*([a-zA-Z\s]+?)\s*(\d{3,})?\s*([vVxX✓]|$)/);
+            const match = line.match(/^(\d+)\s+([a-zA-Z\s]+?)\s+(\d+)\s*([vVxX✓]?)$/);
             
             if (match) {
-                const qty = match[1] ? parseInt(match[1]) : 1;
-                let rawProduct = match[2].trim();
-                const price = match[3] ? parseInt(match[3]) : 0;
-                const statusSymbol = match[4] ? match[4].toLowerCase() : '';
+                const qty = parseInt(match[1]);
+                const rawProduct = match[2].trim();
+                const rawPrice = parseInt(match[3]);
+                const statusSymbol = (match[4] || '').toLowerCase();
+
+                const price = rawPrice * 1000;
                 const isPaid = ['v', 'x', '✓', 'ok'].includes(statusSymbol);
                 const product = normalizeProduct(rawProduct);
 
                 if (product.length > 2) { 
-                    parsedItems.push({ qty, product, price, status: isPaid ? 'Lunas' : 'Belum' });
-                    total += price;
+                    parsedItems.push({
+                        qty: qty,
+                        product: product,
+                        price: price,
+                        status: isPaid ? 'Lunas' : 'Belum'
+                    });
+                    total += qty * price;
                 }
             }
         });
 
         const newTrans = new Transaction({ items: parsedItems, totalAmount: total, originalImage: fileName });
         await newTrans.save();
+        console.log(chalk.blue('✓ Data Parsed:', JSON.stringify(parsedItems)));
+        console.log(chalk.blue('✓ Total:', total));
 
         res.json({ success: true, data: parsedItems, total: total, imageId: fileName, raw_text: text });
 
