@@ -32,15 +32,13 @@ const normalizeProduct = (text) => {
 };
 
 exports.processImage = async (req, res) => {
+    let worker;
     try {
         if (!req.file) return res.status(400).json({ error: 'Tidak ada gambar diupload' });
 
-        console.log(chalk.yellow('1. Memulai Proses OCR & Upload...'));
+        console.log(chalk.yellow('1. Memulai Proses OCR & Upload (Tesseract v5)...'));
 
-        const worker = await Tesseract.createWorker('eng', 1, {
-            langPath: path.join(__dirname, '..', 'node_modules', 'tesseract.js', 'tessdata'),
-            cacheMethod: 'none',
-        });
+        worker = await Tesseract.createWorker('eng');
         
         const ocrPromise = worker.recognize(req.file.buffer);
 
@@ -50,8 +48,6 @@ exports.processImage = async (req, res) => {
 
         const [{ data: { text } }, uploadResult] = await Promise.all([ocrPromise, uploadPromise]);
         
-        await worker.terminate();
-
         console.log(chalk.green('✓ OCR & Upload Selesai:', fileName));
 
         const lines = text.split('\n').filter(line => line.trim() !== '');
@@ -84,5 +80,10 @@ exports.processImage = async (req, res) => {
     } catch (error) {
         console.error(chalk.red('System Error:', error));
         res.status(500).json({ error: 'Gagal memproses transaksi' });
+    } finally {
+        if (worker) {
+            await worker.terminate();
+            console.log(chalk.magenta('Worker Terminated.'));
+        }
     }
 };
