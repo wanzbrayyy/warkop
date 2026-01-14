@@ -8,6 +8,8 @@
                 "includeFiles": [
                     "node_modules/tesseract.js/dist/worker.min.js",
                     "node_modules/tesseract.js-core/tesseract-core-lstm.wasm.js",
+                    "node_modules/tesseract.js-core/tesseract-core-relaxedsimd.wasm",
+                    "node_modules/tesseract.js-core/tesseract-core-simd.wasm",
                     "node_modules/tesseract.js/tessdata/eng.traineddata.gz"
                 ]
             }
