@@ -5,17 +5,14 @@ const { getShiftDate } = require('../utils/shiftHelper');
 exports.addExpense = async (req, res) => {
     try {
         const { description, amount } = req.body;
-        if (!description || !amount || amount <= 0) {
-            return res.status(400).json({ error: 'Deskripsi dan jumlah harus valid.' });
-        }
-
         const shiftDate = getShiftDate();
+        const userId = req.userId;
 
-        const expense = new Expense({ description, amount, shiftDate });
+        const expense = new Expense({ description, amount, shiftDate, userId });
         await expense.save();
 
         const report = await DailyReport.findOneAndUpdate(
-            { shiftDate },
+            { shiftDate, userId },
             { 
                 $inc: { totalExpenses: amount, netIncome: -amount },
                 $set: { lastUpdatedAt: new Date() }
@@ -32,16 +29,14 @@ exports.addExpense = async (req, res) => {
 exports.getDashboardData = async (req, res) => {
     try {
         const shiftDate = getShiftDate();
+        const userId = req.userId;
         
-        const report = await DailyReport.findOne({ shiftDate });
+        const report = await DailyReport.findOne({ shiftDate, userId });
 
         if (!report) {
             return res.json({
-                shiftDate,
-                totalRevenue: 0,
-                totalExpenses: 0,
-                netIncome: 0,
-                transactionCount: 0,
+                shiftDate, userId, totalRevenue: 0, totalExpenses: 0,
+                netIncome: 0, transactionCount: 0
             });
         }
         
