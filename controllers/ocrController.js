@@ -5,6 +5,7 @@ const axios = require('axios');
 const Jimp = require('jimp');
 const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
 const chalk = require('chalk');
+const Tesseract = require('tesseract.js');
 
 const r2 = new S3Client({
     region: 'auto',
@@ -80,8 +81,8 @@ exports.processImage = async (req, res) => {
         await DailyReport.findOneAndUpdate(
             { shiftDate },
             { 
-                : { totalRevenue: totalAmount, netIncome: totalAmount, transactionCount: 1 },
-                : { lastUpdatedAt: new Date() }
+                $inc: { totalRevenue: totalAmount, netIncome: totalAmount, transactionCount: 1 },
+                $set: { lastUpdatedAt: new Date() }
             },
             { new: true, upsert: true }
         );
