@@ -24,12 +24,12 @@ async function analyzeTextWithAI(rawText) {
         Each object must have these keys: "qty", "product", "price", "status".
 
         RULES:
-        1. Correct typos and abbreviations. 'kp htm' is 'Kopi Hitam', 's frez' or 'oktwz' is 'Susu Freeze'.
-        2. If quantity is a letter like 'I' or 'l', it is 1. If missing, assume 1.
-        3. PRICE LOGIC: A number like '10' in the price column means '10000'. Multiply any price less than 100 by 1000.
-        4. STATUS LOGIC: A checkmark (v, w, vv, ww), slash (/), or 'x' means the status is 'Lunas'. Otherwise, 'Belum'.
-        5. Ignore irrelevant header text like 'NOTA', 'NAMA BARANG', or jumbled symbols.
-        6. Your final output must only be the JSON array itself, without any extra text or markdown.
+        1. Perbaiki kesalahan ketik dan singkatan. 'kp htm' adalah 'Kopi Hitam', 's frez' atau 'oktwz' adalah 'Susu Freeze, pokonya lihat saja dibagian nama produk atau nama barang, wajib terbaca dengan jelas dan ditulis yang sesuai'.
+        2. Jika kuantitas berupa huruf seperti 'I' atau 'l', maka nilainya adalah 1. Jika tidak ada, anggap saja nilainya 1.
+        3. LOGIKA HARGA: Angka seperti '1' 1000, '2" 2000 "3" 3000, "4" 4000 dan seterusnya j'10' di kolom harga berarti '10000'. Kalikan harga apa pun yang kurang dari 100 dengan 1000. jika 100 =100.000 tinggal atur dari 1 sampai seterusnya paham?
+        4. LOGIKA STATUS: Tanda centang (✓), garis miring (/), atau 'x' berarti statusnya adalah 'Lunas'. Jika tidak, 'Belum, jika belum diisi atau kolom harga nya kosong belum di centang = belum lunas, dan jika bukan centang tapi ada bacaan QR, QRIS, RIS DAN SETERUSNYA BERARTI ITU MENGGUNAKAN METODE PEMBAYARAN QRIS, JIKA CENTANG ITU UANG CASH'
+        5. tuliskan juga header  dan shift shift dll relevan seperti 'NOTA', 'NAMA BARANG', atau simbol yang campur aduk.
+        6. Output akhir Anda hanya boleh berupa array JSON itu sendiri, tanpa teks tambahan atau markdown apa pun.
 
         MESSY TEXT:
         "${rawText}"
