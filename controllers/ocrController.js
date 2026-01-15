@@ -14,23 +14,36 @@ const r2 = new S3Client({
     }
 });
 
-// Kamus singkatan Warkop (tambahkan sesuai kebutuhan)
+// Kamus Koreksi Typo Warkop
 const warkopDictionary = {
-    's.': 'Susu', 's': 'Susu', 'freez': 'Freeze', 'frez': 'Freeze',
-    'kp': 'Kopi', 'htm': 'Hitam', 'itm': 'Hitam',
-    'teh': 'Teh', 'mns': 'Manis', 't': 'Teh',
-    'gr': 'Goreng', 'grg': 'Goreng',
-    'ind': 'Indomie', 'mg': 'Mie Goreng',
-    'rb': 'Rebus', 'tlr': 'Telur'
+    'oktwz': 'S.Freeze', // Fix spesifik untuk kasus log mu
+    'freez': 'Freeze', 'frez': 'Freeze',
+    's.': 'Susu', 'kp': 'Kopi', 'htm': 'Hitam',
+    'teh': 'Teh', 'mns': 'Manis', 'mg': 'Mie Goreng',
+    'ind': 'Indomie', 'tlr': 'Telur'
 };
 
 const normalizeProduct = (text) => {
-    // Hapus karakter aneh dari nama produk
-    const cleanText = text.replace(/[^a-zA-Z0-9\s.]/g, ''); 
+    let cleanText = text.replace(/[^a-zA-Z0-9\s.]/g, ''); 
     const words = cleanText.toLowerCase().split(/\s+/);
-    
     const normalized = words.map(w => warkopDictionary[w] || w);
     return normalized.join(' ').replace(/\b\w/g, l => l.toUpperCase());
+};
+
+// Fungsi Cerdas: Mengubah huruf mirip angka menjadi angka
+const fuzzyNumber = (str) => {
+    if (!str) return null;
+    // Ubah I, l, i, O, o menjadi angka
+    const clean = str.replace(/[Ili|]/g, '1').replace(/[Oo]/g, '0').replace(/[S]/g, '5');
+    const parsed = parseInt(clean);
+    return isNaN(parsed) ? null : parsed;
+};
+
+// Fungsi Cerdas: Deteksi Status Lunas (V, W, checklist)
+const fuzzyStatus = (str) => {
+    if (!str) return false;
+    const s = str.toLowerCase();
+    return ['v', 'x', 'w', 'ww', 'vv', 'ok', '/', '\'].some(k => s.includes(k));
 };
 
 exports.processImage = async (req, res) => {
@@ -38,97 +51,98 @@ exports.processImage = async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ error: 'Tidak ada gambar diupload' });
 
-        console.log(chalk.yellow('1. Mengoptimalkan Gambar (Jimp)...'));
+        console.log(chalk.yellow('1. Optimasi Gambar (Binarization Mode)...'));
 
-        // PRE-PROCESSING: Resize & Contrast (Kunci Kecepatan & Akurasi)
+        // TEKNIK BARU: Thresholding (Ubah jadi Hitam Putih Pekat)
         const image = await Jimp.read(req.file.buffer);
         image
-            .resize(800, Jimp.AUTO) // Perkecil gambar (Speed Booster)
-            .greyscale()            // Hapus warna (biar fokus ke teks)
-            .contrast(0.5)          // Perjelas tulisan hitam
-            .normalize();           // Ratakan pencahayaan
+            .resize(1000, Jimp.AUTO) // Resolusi sedikit dinaikkan
+            .greyscale()
+            .contrast(0.8)           // Kontras tinggi
+            .brightness(0.1)
+            .posterize(2);           // Paksa jadi 2 warna saja (Hitam & Putih)
 
         const processedBuffer = await image.getBufferAsync(Jimp.MIME_JPEG);
 
-        console.log(chalk.yellow('2. Memulai OCR Tesseract...'));
+        console.log(chalk.yellow('2. Memulai OCR Tesseract (Mode Loose)...'));
 
         worker = await Tesseract.createWorker('eng');
         
-        // Whitelist: Hanya izinkan angka, huruf, dan simbol dasar untuk mengurangi sampah
+        // Setting OCR: PSM 6 (Assume single uniform block of text) bagus untuk tabel
         await worker.setParameters({
-            tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,/- VvXx',
+            tessedit_char_whitelist: '', // Jangan dibatasi, biar huruf aneh tetap terbaca lalu kita filter manual
+            tessedit_pageseg_mode: '6'   
         });
 
         const ocrPromise = worker.recognize(processedBuffer);
-
-        // Upload gambar asli ke R2 (Background process)
+        
+        // Upload R2
         const fileName = `scan_${Date.now()}.jpg`;
         const uploadParams = { Bucket: 'wanzofc', Key: fileName, Body: req.file.buffer, ContentType: 'image/jpeg' };
         const uploadPromise = r2.send(new PutObjectCommand(uploadParams));
 
         const [{ data: { text } }] = await Promise.all([ocrPromise, uploadPromise]);
         
-        console.log(chalk.cyan('Raw Text Bersih:\n', text));
+        console.log(chalk.cyan('Raw Text:\n', text));
 
-        // FILTERING & PARSING
         const lines = text.split('\n');
         const parsedItems = [];
         let total = 0;
 
-        // Kata kunci sampah yang harus diabaikan (Header Tabel)
-        const ignoreWords = ['banyaknya', 'nama', 'barang', 'harga', 'jumlah', 'nota', 'tuan', 'toko', 'shift'];
-
         lines.forEach(line => {
-            // 1. Bersihkan garis tabel (| _ —) menjadi spasi
-            let cleanLine = line.replace(/[|_\—\[\]\{\}]/g, ' ').trim();
-            
-            // 2. Skip jika baris terlalu pendek atau berisi header
-            if (cleanLine.length < 5) return;
-            if (ignoreWords.some(w => cleanLine.toLowerCase().includes(w))) return;
+            // Bersihkan sampah visual
+            let cleanLine = line.replace(/[—_\[\]\{\}]/g, ' ').trim();
+            if (cleanLine.length < 3) return;
 
-            // 3. Pecah menjadi kata
             const words = cleanLine.split(/\s+/);
+            if (words.length < 2) return;
 
-            // Logika Deteksi:
-            // Biasanya format: [QTY] [NAMA PRODUK...] [HARGA] [STATUS]
+            // --- LOGIKA PARSING BARU (TOLERANSI TINGGI) ---
             
-            let qty = 1;
-            let price = 0;
+            // 1. Deteksi QTY (Kata pertama)
+            // Cek apakah kata pertama mirip angka (contoh: 'I' atau '1' atau 'l')
+            let qty = fuzzyNumber(words[0]);
+            
+            if (qty !== null) {
+                // Jika kata pertama adalah angka, hapus dari array kata
+                words.shift(); 
+            } else {
+                // Jika tidak ada angka, default 1
+                qty = 1;
+            }
+
+            // 2. Deteksi STATUS (Kata terakhir)
             let status = 'Belum';
-            
-            // Cek Qty (Angka di awal)
-            if (!isNaN(parseFloat(words[0]))) {
-                qty = parseInt(words[0]);
-                words.shift(); // Hapus angka qty dari array
-            }
-
-            // Cek Status (Simbol di akhir: V, /, X)
             const lastWord = words[words.length - 1];
-            if (['v', 'x', '/', 'ok'].includes(lastWord.toLowerCase())) {
+            
+            if (fuzzyStatus(lastWord)) {
                 status = 'Lunas';
-                words.pop();
+                words.pop(); // Hapus simbol status
             }
 
-            // Cek Harga (Angka di akhir setelah status dibuang)
-            const possiblePrice = words[words.length - 1];
-            // Deteksi harga 10 artinya 10.000, 5 artinya 5.000
-            if (!isNaN(parseFloat(possiblePrice))) {
-                let rawPrice = parseFloat(possiblePrice);
-                // Logika Warkop: Jika angka < 100, pasti ribuan (cth: 10 = 10.000)
-                if (rawPrice < 100) rawPrice *= 1000; 
+            // 3. Deteksi HARGA (Kata paling belakang sekarang)
+            let price = 0;
+            const lastWordNow = words[words.length - 1];
+            const parsedPrice = fuzzyNumber(lastWordNow);
+
+            if (parsedPrice !== null) {
+                let rawPrice = parsedPrice;
+                // Logika Warkop: "10" = 10.000, "5" = 5.000
+                if (rawPrice < 100) rawPrice *= 1000;
                 
                 price = rawPrice;
-                words.pop();
+                words.pop(); // Hapus harga dari nama produk
             }
 
-            // Sisanya adalah Nama Produk
-            const productName = words.join(' ');
+            // 4. Sisa kata adalah NAMA PRODUK
+            const productName = normalizeProduct(words.join(' '));
 
-            // Simpan hanya jika ada nama produk dan (ada harga ATAU status lunas)
-            if (productName.length > 2 && (price > 0 || status === 'Lunas')) {
+            // Validasi akhir: Harus ada nama produk
+            // Dan (ada harga ATAU status lunas ATAU qty > 0)
+            if (productName.length > 2) {
                 parsedItems.push({
                     qty: qty,
-                    product: normalizeProduct(productName),
+                    product: productName,
                     price: price,
                     status: status
                 });
@@ -139,13 +153,13 @@ exports.processImage = async (req, res) => {
         const newTrans = new Transaction({ items: parsedItems, totalAmount: total, originalImage: fileName });
         await newTrans.save();
 
-        console.log(chalk.blue('✓ Hasil:', JSON.stringify(parsedItems)));
+        console.log(chalk.blue('✓ Hasil Akhir:', JSON.stringify(parsedItems)));
 
         res.json({ success: true, data: parsedItems, total: total, raw_text: text });
 
     } catch (error) {
         console.error(chalk.red('Error:', error));
-        res.status(500).json({ error: 'Gagal proses: ' + error.message });
+        res.status(500).json({ error: 'Gagal: ' + error.message });
     } finally {
         if (worker) await worker.terminate();
     }
