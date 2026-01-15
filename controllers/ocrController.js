@@ -3,6 +3,7 @@ const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
 const Tesseract = require('tesseract.js');
 const chalk = require('chalk');
 const Transaction = require('../models/transaction');
+const DailyReport = require('../models/dailyReport');
 const path = require('path');
 const Jimp = require('jimp');
 const axios = require('axios');
