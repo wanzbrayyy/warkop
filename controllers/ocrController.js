@@ -24,12 +24,12 @@ async function analyzeTextWithAI(rawText) {
         Each object must have these keys: "qty", "product", "price", "status".
 
         RULES:
-        1. Correct typos and abbreviations. 'kp htm' is 'Kopi Hitam', 's frez' is 'Susu Freeze', 'oktwz' is 'S.Freeze'.
-        2. If quantity is missing or written as 'I' or 'l', assume it is 1.
-        3. PRICE LOGIC: If price is a small number like '10' it means '10000'. Multiply any price less than 100 by 1000.
-        4. STATUS LOGIC: If you see a checkmark (v, w, ww), slash (/), or 'x', the status is 'Lunas'. Otherwise, it is 'Belum'.
-        5. Ignore irrelevant lines like headers ('NOTA', 'NAMA BARANG') or empty lines.
-        6. The final output MUST BE ONLY the JSON array and nothing else.
+        1. Correct typos and abbreviations. 'kp htm' is 'Kopi Hitam', 's frez' or 'oktwz' is 'Susu Freeze'.
+        2. If quantity is a letter like 'I' or 'l', it is 1. If missing, assume 1.
+        3. PRICE LOGIC: A number like '10' in the price column means '10000'. Multiply any price less than 100 by 1000.
+        4. STATUS LOGIC: A checkmark (v, w, vv, ww), slash (/), or 'x' means the status is 'Lunas'. Otherwise, 'Belum'.
+        5. Ignore irrelevant header text like 'NOTA', 'NAMA BARANG', or jumbled symbols.
+        6. Your final output must only be the JSON array itself, without any extra text or markdown.
 
         MESSY TEXT:
         "${rawText}"
@@ -44,21 +44,23 @@ async function analyzeTextWithAI(rawText) {
         }, {
             headers: {
                 'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'HTTP-Referer': 'https://warkop.app',
+                'X-Title': 'Warkop Kasir AI'
             }
         });
         
         let content = response.data.choices[0].message.content;
-        const jsonMatch = content.match(/```json\n([\s\S]*?)\n```|(\[[\s\S]*\])/);
+        const jsonMatch = content.match(/(\[[\s\S]*\])/);
 
-        if (jsonMatch) {
-            const jsonString = jsonMatch[1] || jsonMatch[2];
-            return JSON.parse(jsonString);
+        if (jsonMatch && jsonMatch[0]) {
+            return JSON.parse(jsonMatch[0]);
         }
-        throw new Error("AI did not return valid JSON.");
+        throw new Error("AI did not return a valid JSON array.");
         
     } catch (error) {
-        console.error(chalk.red('OpenRouter AI Error:', error.response ? error.response.data : error.message));
+        const errorMessage = error.response ? JSON.stringify(error.response.data) : error.message;
+        console.error(chalk.red('OpenRouter AI Error:', errorMessage));
         throw new Error("Failed to analyze text with AI.");
     }
 }
