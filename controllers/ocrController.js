@@ -4,6 +4,7 @@ const { getShiftDate } = require('../utils/shiftHelper');
 const axios = require('axios');
 const Jimp = require('jimp');
 const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
+const chalk = require('chalk');
 
 const r2 = new S3Client({
     region: 'auto',
