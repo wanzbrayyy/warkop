@@ -1,13 +1,20 @@
 const mongoose = require('mongoose');
 
 const transactionSchema = new mongoose.Schema({
+    shift: { type: String, default: 'Tidak Diketahui' },
+    notaNo: { type: String, default: 'Tidak Diketahui' },
     items: [{
         qty: Number,
         product: String,
         price: Number,
-        status: { type: String, enum: ['Lunas', 'Belum'] }
+        paymentMethod: { 
+            type: String, 
+            enum: ['Cash', 'QRIS', 'Belum Bayar'],
+            default: 'Belum Bayar'
+        }
     }],
     totalAmount: Number,
+    totalQty: Number,
     originalImage: String,
     createdAt: { type: Date, default: Date.now }
 });

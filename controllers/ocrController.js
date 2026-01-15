@@ -19,17 +19,28 @@ const OPENROUTER_API_KEY = "sk-or-v1-40a005b277fd9c958a9be52e3002eadabfe8148d957
 
 async function analyzeTextWithAI(rawText) {
     const prompt = `
-        You are an expert data entry assistant for a coffee shop.
-        Analyze the following messy text from a handwritten receipt and convert it into a clean JSON array of objects.
-        Each object must have these keys: "qty", "product", "price", "status".
+        You are a data entry AI for a cash register system. Your task is to analyze messy text from a handwritten receipt and convert it into a clean JSON object.
 
+        The final JSON object MUST have this structure:
+        {
+          "shift": "string (e.g., 'Shift Malam')",
+          "notaNo": "string (e.g., 'Gema')",
+          "items": [
+            { "qty": number, "product": "string", "price": number, "paymentMethod": "string ('Cash'/'QRIS'/'Belum Bayar')" }
+          ]
+        }
+        
         RULES:
-        1. Perbaiki kesalahan ketik dan singkatan. 'kp htm' adalah 'Kopi Hitam', 's frez' atau 'oktwz' adalah 'Susu Freeze, pokonya lihat saja dibagian nama produk atau nama barang, wajib terbaca dengan jelas dan ditulis yang sesuai'.
-        2. Jika kuantitas berupa huruf seperti 'I' atau 'l', maka nilainya adalah 1. Jika tidak ada, anggap saja nilainya 1.
-        3. LOGIKA HARGA: Angka seperti '1' 1000, '2" 2000 "3" 3000, "4" 4000 dan seterusnya j'10' di kolom harga berarti '10000'. Kalikan harga apa pun yang kurang dari 100 dengan 1000. jika 100 =100.000 tinggal atur dari 1 sampai seterusnya paham?
-        4. LOGIKA STATUS: Tanda centang (✓), garis miring (/), atau 'x' berarti statusnya adalah 'Lunas'. Jika tidak, 'Belum, jika belum diisi atau kolom harga nya kosong belum di centang = belum lunas, dan jika bukan centang tapi ada bacaan QR, QRIS, RIS DAN SETERUSNYA BERARTI ITU MENGGUNAKAN METODE PEMBAYARAN QRIS, JIKA CENTANG ITU UANG CASH'
-        5. tuliskan juga header  dan shift shift dll relevan seperti 'NOTA', 'NAMA BARANG', atau simbol yang campur aduk.
-        6. Output akhir Anda hanya boleh berupa array JSON itu sendiri, tanpa teks tambahan atau markdown apa pun.
+        1. Correct typos and abbreviations. 'kp htm' is 'Kopi Hitam', 's frez' is 'Susu Freeze'. Analyze the product name column.
+        2. If quantity is 'I' or 'l', it's 1. If missing, assume 1.
+        3. PRICE LOGIC: '1' means 1000, '2' means 2000, '10' means 10000. Any number under 100 should be multiplied by 1000. '100' is 100000.
+        4. PAYMENT METHOD LOGIC:
+           - A checkmark (✓), v, vv, ww, x, or a filled price column indicates payment.
+           - If you see "QR", "QRIS", "RIS", the paymentMethod is "QRIS".
+           - For any other mark of payment (like ✓ or just a price), the paymentMethod is "Cash".
+           - If the price/payment column is empty or has a dash, the paymentMethod is "Belum Bayar".
+        5. Extract header info like shift (e.g., 'shift malam') and nota number (e.g., 'Gema') into the top-level keys.
+        6. Your final output MUST BE ONLY the JSON object, no extra text or markdown.
 
         MESSY TEXT:
         "${rawText}"
@@ -51,12 +62,11 @@ async function analyzeTextWithAI(rawText) {
         });
         
         let content = response.data.choices[0].message.content;
-        const jsonMatch = content.match(/(\[[\s\S]*\])/);
-
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
         if (jsonMatch && jsonMatch[0]) {
             return JSON.parse(jsonMatch[0]);
         }
-        throw new Error("AI did not return a valid JSON array.");
+        throw new Error("AI did not return a valid JSON object.");
         
     } catch (error) {
         const errorMessage = error.response ? JSON.stringify(error.response.data) : error.message;
@@ -64,7 +74,6 @@ async function analyzeTextWithAI(rawText) {
         throw new Error("Failed to analyze text with AI.");
     }
 }
-
 
 exports.processImage = async (req, res) => {
     let worker;
@@ -84,20 +93,27 @@ exports.processImage = async (req, res) => {
         console.log(chalk.cyan('Raw Text:\n', text));
         console.log(chalk.yellow('3. Menganalisa dengan AI...'));
 
-        const parsedItems = await analyzeTextWithAI(text);
+        const aiResult = await analyzeTextWithAI(text);
         
-        const total = parsedItems.reduce((sum, item) => sum + (item.qty * item.price), 0);
+        const totalAmount = aiResult.items.reduce((sum, item) => sum + (item.qty * item.price), 0);
+        const totalQty = aiResult.items.reduce((sum, item) => sum + item.qty, 0);
         
         const fileName = `scan_${Date.now()}.jpg`;
-        const uploadParams = { Bucket: 'wanzofc', Key: fileName, Body: req.file.buffer, ContentType: 'image/jpeg' };
-        await r2.send(new PutObjectCommand(uploadParams));
+        await r2.send(new PutObjectCommand({ Bucket: 'wanzofc', Key: fileName, Body: req.file.buffer, ContentType: 'image/jpeg' }));
 
-        const newTrans = new Transaction({ items: parsedItems, totalAmount: total, originalImage: fileName });
+        const newTrans = new Transaction({
+            shift: aiResult.shift,
+            notaNo: aiResult.notaNo,
+            items: aiResult.items,
+            totalAmount: totalAmount,
+            totalQty: totalQty,
+            originalImage: fileName
+        });
         await newTrans.save();
 
-        console.log(chalk.blue('✓ Hasil dari AI:', JSON.stringify(parsedItems)));
+        console.log(chalk.blue('✓ Hasil dari AI:', JSON.stringify(aiResult)));
 
-        res.json({ success: true, data: parsedItems, total: total, imageId: fileName, raw_text: text });
+        res.json({ success: true, data: aiResult.items, total: totalAmount, raw_text: text });
 
     } catch (error) {
         console.error(chalk.red('System Error:', error));
