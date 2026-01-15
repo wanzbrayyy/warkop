@@ -5,6 +5,10 @@ const { getShiftDate } = require('../utils/shiftHelper');
 exports.addExpense = async (req, res) => {
     try {
         const { description, amount } = req.body;
+        if (!description || !amount || amount <= 0) {
+            return res.status(400).json({ error: 'Deskripsi dan jumlah harus valid.' });
+        }
+
         const shiftDate = getShiftDate();
 
         const expense = new Expense({ description, amount, shiftDate });
@@ -13,8 +17,8 @@ exports.addExpense = async (req, res) => {
         const report = await DailyReport.findOneAndUpdate(
             { shiftDate },
             { 
-                : { totalExpenses: amount, netIncome: -amount },
-                : { lastUpdatedAt: new Date() }
+                $inc: { totalExpenses: amount, netIncome: -amount },
+                $set: { lastUpdatedAt: new Date() }
             },
             { new: true, upsert: true }
         );
