@@ -20,4 +20,4 @@ const transactionSchema = new mongoose.Schema({
     createdAt: { type: Date, default: Date.now }
 });
 
-module.exports = mongoose.model('transaction', transactionSchema);
+module.exports = mongoose.models.transaction || mongoose.model('transaction', transactionSchema);

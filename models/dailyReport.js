@@ -12,4 +12,4 @@ const dailyReportSchema = new mongoose.Schema({
 
 dailyReportSchema.index({ shiftDate: 1, userId: 1 }, { unique: true });
 
-module.exports = mongoose.model('dailyReport', dailyReportSchema);
+module.exports = mongoose.models.dailyReport || mongoose.model('dailyReport', dailyReportSchema);
